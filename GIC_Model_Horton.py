@@ -143,8 +143,8 @@ if __name__ == '__main__':
     # 1) DEFINE NETWORK CONFIGURATION
     # ===============================================================
     
-    networkpath =       "HortonGrid.txt"
-    connectionspath =   "HortonGrid_Connections.txt"
+    networkpath =       "network/HortonGrid.txt"
+    connectionspath =   "network/HortonGrid_Connections.txt"
     
     # Read station and transformer data:
     network = open(networkpath, 'r')
