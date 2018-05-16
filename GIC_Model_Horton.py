@@ -5,7 +5,8 @@ Basic GIC calculation method following Lehtinen and Pirjola 1985.
 Adapted from ComputeGIC.m from C. Beggan's (BGS) adaptation of
 K. Turnbull's Fortran code.
 
-The script requires no input right now and should be run as:
+For usage to calculate expected GIC values in the grid from the 
+Horton et al. (2012) paper with a 1 V/km geoelectric field execute:
     $ python GIC_Model_Horton.py
 
 NOTES:
@@ -24,6 +25,7 @@ Created by R Bailey (ZAMG, Austria) on 2015-08-03.
 
 import os
 import sys
+import getopt
 import numpy as np
 from scipy import interpolate
 from math import radians, tan, atan, atan2, cos, sin, acos, asin
@@ -140,6 +142,55 @@ def grc_distance(lat1, lon1, lat2, lon2, result='km'):
 if __name__ == '__main__':
     
     # ===============================================================
+    # 0) READ IN OPTIONS
+    # ===============================================================
+    
+    usage = ("-------------------------------------------------------------------",
+             "DESCRIPTION:",
+             "  Python script for modelling GICs using the Lehtinen and Pirjola",
+             "  (1985) method of GIC computation applied to Horton et al. (2012)",
+             "  example network model. The input geoelectric field can be a basic",
+             "  1 V/km field or a file for a spatially varying field (for",
+             "  Austria) can be defined instead. After computation, the values",
+             "  of GIC per network node and per transformer are printed.",
+             "  Details on the Horton grid are provided in the folder 'network'.",
+             "-------------------------------------------------------------------",
+             "OPTIONS:",
+             "  -e/--efile:       Defines input geoelectric field file path that",
+             "                    replaces 1 V/km electric field option.",
+             "                    python GIC_Model_Horton.py -e <efilepath>",
+             "  -h/--help:        Prints this helpful text.",
+             "                    python GIC_Model_Horton.py -h",
+             "-------------------------------------------------------------------",
+             "EXAMPLE USAGE:",
+             "  - Basic model with 1 V/km geoelectric field values:",
+             "    $ python GIC_Model_Horton.py",
+             "  - With defined geoelectric field input file from thin-sheet code:",
+             "    $ python GIC_Model_Horton.py -e Efiles/E_39_2017-09-07T23:25:00.txt",
+             "-------------------------------------------------------------------",
+              )
+    
+    try:
+        myopts, args = getopt.getopt(sys.argv[1:],"he:", ["help", "efile="])
+    except:
+        print("Incorrect format! Correct usage defined below:")
+        print('\n'.join(usage))
+        sys.exit()
+                
+    testfield = True
+    for opt, arg in myopts:
+        if opt in ['-h', '--help']:
+            print('\n'.join(usage))
+            sys.exit()
+        elif opt in ['-e', '--efile']:
+            efilepath = arg
+            testfield = False
+        else:
+            print("{:s} is not a valid argument. Correct usage defined below:".format(opt))
+            print('\n'.join(usage)) 
+            sys.exit()
+    
+    # ===============================================================
     # 1) DEFINE NETWORK CONFIGURATION
     # ===============================================================
     
@@ -224,19 +275,45 @@ if __name__ == '__main__':
     # 2) DEFINE LOCATION VARIABLES
     # ===============================================================
     
-    # Boundaries of geographic box:
-    nbound = 35.0
-    ebound = -80.0
-    sbound = 32.0
-    wbound = -88.0
+    # Boundaries of North American geographic box for Horton grid:
+    nbound_NA = 35.0
+    ebound_NA = -80.0
+    sbound_NA = 32.0
+    wbound_NA = -88.0
     
-    # Number of cells in box (roughly equidistant):
-    x_inc, y_inc = 6./60., 8./60.
-    
-    # Latitude and longitude range:
-    lat = np.arange(sbound, nbound, x_inc)
-    lon = np.arange(wbound, ebound, y_inc)
-    
+    # Option 1: Basic 1 V/km geoelectric fields, use NA coordinates for Horton example:
+    if testfield:
+        nbound, ebound, sbound, wbound = nbound_NA, ebound_NA, sbound_NA, wbound_NA
+        # Spacing of cells in box (roughly equidistant):
+        x_inc, y_inc = 6./60., 8./60.
+        # Latitude and longitude range within boundaries:
+        lat = np.arange(sbound, nbound, x_inc)
+        lon = np.arange(wbound, ebound, y_inc)
+        
+    # Option 2 (-e): Complex geoelectric field provided, use new (Austria) coordinates:
+    else:
+        # Read in file for location data:
+        darray = np.loadtxt(efilepath)
+        # Extract position arrays from file:
+        lat = sorted(list(set(darray[:,0])))
+        lon = sorted(list(set(darray[:,1])))
+        nbound = lat[-1]
+        ebound = lon[-1]
+        sbound = lat[0]
+        wbound = lon[0]
+        # Spacing of cells in box (roughly equidistant):
+        x_inc, y_inc = lat[1]-lat[0], lon[1]-lon[0]
+        
+        # Transfer Horton grid coordinates to relative Austrian coordinates to work with example E-field:
+        d_lat_NA, d_lon_NA = nbound_NA - sbound_NA, ebound_NA - wbound_NA
+        d_lat, d_lon = nbound - sbound, ebound - wbound
+        geolat_n, geolon_n = np.zeros(nnodes, dtype=npf), np.zeros(nnodes, dtype=npf)
+        for i, (vlat, vlon) in enumerate(zip(geolat, geolon)):
+            geolat_n[i] = sbound + (vlat - sbound_NA)/d_lat_NA * d_lat
+            geolon_n[i] = wbound + (vlon - wbound_NA)/d_lon_NA * d_lon
+            
+        geolat, geolon = geolat_n, geolon_n
+                
     # TODO: Add in method to remove station
 
     # ===============================================================
@@ -291,7 +368,6 @@ if __name__ == '__main__':
     # 4) DEFINE GEOELECTRIC FIELD
     # ===============================================================
     
-    testfield = True
     layermodel = None
     surfacemodel = None
            
@@ -307,8 +383,26 @@ if __name__ == '__main__':
         en_int = interpolate.interp2d(lon, lat, en)
         ee_int = interpolate.interp2d(lon, lat, ee)
         
-    # Option 2: Load in external field file:
-    # TODO: Add this in!
+    # Option 2 (-e): Use external field file:
+    else:
+        darray = np.loadtxt(efilepath, skiprows=0)
+        # Reshape into usable array:
+        nlat, nlon = len(lat), len(lon)
+        ien, iee = 2, 5     # Indices of N and E field component (real parts only here)
+        endata = np.reshape(darray[:,ien], (nlat, nlon), order='F')
+        eedata = np.reshape(darray[:,iee], (nlat, nlon), order='F')
+
+        # Interpolate E-field onto these points:
+        en_int = interpolate.interp2d(lon, lat, endata)
+        ee_int = interpolate.interp2d(lon, lat, eedata)
+        
+        # Can do quick check to make sure this matches up (direct comparison to random file lines):
+        #print("Comparison to lines from file for column #s {} and {}".format(ien+1, iee+1))
+        #print("            Lat        Lon         EN(R)      EN(C)      EN_tot    EE(R)      EE(C)       EE_tot")
+        #print("Line #863:  48.0190    11.7933     0.0509     0.0650     0.0826    -0.0531    -0.0675     0.0859")
+        #print("--> {:.4f} (N), {:.4f} (E)".format(en_int(11.7933, 48.0190)[0], ee_int(11.7933, 48.0190)[0]))
+        #print("Line #2547: 48.3770    17.1800     0.1056     0.1363     0.1724    -0.0729    -0.0944     0.1192")
+        #print("--> {:.4f} (N), {:.4f} (E)".format(en_int(17.1800, 48.3770)[0], ee_int(17.1800, 48.3770)[0]))
             
     # ===============================================================
     # 5) INTEGRATE FIELD ALONG LINES
@@ -425,6 +519,14 @@ if __name__ == '__main__':
     # ===============================================================
     # 7) PRINT RESULTS
     # ===============================================================
+    
+    print("")
+    print("-----------------------------------------------------------------")
+    if testfield:
+        print("RESULTS FOR 1 V/KM NORTHWARD AND EASTWARD ELECTRIC FIELDS")
+    else:
+        print("RESULTS FOR COMPLEX GEOELECTRIC FIELD")
+    print("-----------------------------------------------------------------")
     
     # Print GIC per node (only grounding currents are non-zero):
     print("")
