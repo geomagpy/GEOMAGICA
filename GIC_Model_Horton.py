@@ -328,8 +328,10 @@ if __name__ == '__main__':
         if (resis[x,y] > 0. and res_line[i] > 0.):
             # If res already added to this line, add another line in parallel:
             resis[x,y] = 1./(1./resis[x,y] + 1./res_line[i])
+            resis[y,x] = resis[x,y]
         else:
             resis[x,y] = res_line[i]
+            resis[y,x] = resis[x,y]
         if resis[x,y] > 0.:
             connections[x,y] = 1./resis[x,y]
             connections[y,x] = 1./resis[x,y]
@@ -343,10 +345,13 @@ if __name__ == '__main__':
             latj, lonj = geolat[j], geolon[j]
             if resis[i, j] != 0.:
                 dists[i, j] = grc_distance(lati, loni, latj, lonj, result='km')
-                dists[j, i] = grc_distance(lati, loni, latj, lonj, result='km')
+                dists[j, i] = dists[i, j]
                 try:
                     azi[i, j] = grc_azimuth([loni, lati], [lonj, latj])
-                    azi[j, i] = grc_azimuth([loni, lati], [lonj, latj])
+                    if azi[i, j] >= 0. and azi[i, j] <= np.pi:
+                        azi[j, i] = azi[i, j] + np.pi
+                    if azi[i, j] > np.pi and azi[i, j] <= 2*np.pi:
+                        azi[j, i] = azi[i, j] - np.pi
                 except ZeroDivisionError:
                     azi[i, j] = np.nan
                     azi[j, i] = np.nan
@@ -459,11 +464,13 @@ if __name__ == '__main__':
     Nvoltage = np.zeros((nnodes, nnodes), dtype=npf)
     for l in range(nconnects):
         Nvoltage[nodefrom[l],nodeto[l]] = Vn_tot[l]
+        Nvoltage[nodeto[l],nodefrom[l]] = -Vn_tot[l]
 
     # Create Evoltage matrix for eastward field:
     Evoltage = np.zeros((nnodes, nnodes), dtype=npf)
     for l in range(nconnects):
         Evoltage[nodefrom[l],nodeto[l]] = Ve_tot[l]
+        Evoltage[nodeto[l],nodefrom[l]] = -Ve_tot[l]
     
     # Use Ohm's law to calculate the current along each pathlength:
     # LP1985 eq. (14): J = V/R
@@ -491,8 +498,8 @@ if __name__ == '__main__':
     Tlinecurr = Nlinecurr + Elinecurr
 
     # Total current at each node due to the E field:
-    Nsourcevec = np.sum(Nlinecurr, axis=0) - np.transpose(np.sum(Nlinecurr, axis=1))
-    Esourcevec = np.sum(Elinecurr, axis=0) - np.transpose(np.sum(Elinecurr, axis=1))
+    Nsourcevec = np.sum(Nlinecurr, axis=0) 
+    Esourcevec = np.sum(Elinecurr, axis=0)
 
     # GIC formed at each node due to the E field:
     # LP1985 eq. (part of 12): **(1 + YZ)^(-1)*J**
